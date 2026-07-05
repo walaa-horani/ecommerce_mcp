@@ -1,12 +1,15 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useAppState, Product, Warehouse, PurchaseOrder, Order } from '@/context/AppStateContext';
+import { useAppState } from '@/context/AppStateContext';
+
+type VendorTab = 'overview' | 'products' | 'orders' | 'warehouses' | 'purchase-orders' | 'settings';
+type OrderFilter = 'All' | 'Pending' | 'Paid' | 'Fulfilled' | 'Cancelled';
 
 export default function VendorDashboardView() {
   const { state, addProduct, addWarehouse, addPurchaseOrder, updateOrderStatus } = useAppState();
 
-  const [tab, setTab] = useState<'overview' | 'products' | 'orders' | 'warehouses' | 'purchase-orders' | 'settings'>('overview');
+  const [tab, setTab] = useState<VendorTab>('overview');
   
   // Product Form State
   const [showAddProductModal, setShowAddProductModal] = useState(false);
@@ -38,7 +41,7 @@ export default function VendorDashboardView() {
   const [settingsSuccess, setSettingsSuccess] = useState(false);
 
   // Orders Filter State
-  const [orderFilter, setOrderFilter] = useState<'All' | 'Pending' | 'Paid' | 'Fulfilled' | 'Cancelled'>('All');
+  const [orderFilter, setOrderFilter] = useState<OrderFilter>('All');
 
   // Computed metrics
   const myProducts = state.products.filter(p => p.orgId === 'vendor-1'); // Default to TechNova Electronics
@@ -127,7 +130,7 @@ export default function VendorDashboardView() {
             ].map((item) => (
               <button
                 key={item.id}
-                onClick={() => setTab(item.id as any)}
+                onClick={() => setTab(item.id as VendorTab)}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
                   tab === item.id
                     ? 'bg-indigo-50 text-indigo-800'
@@ -353,7 +356,7 @@ export default function VendorDashboardView() {
               {['All', 'Pending', 'Paid', 'Fulfilled', 'Cancelled'].map((f) => (
                 <button
                   key={f}
-                  onClick={() => setOrderFilter(f as any)}
+                  onClick={() => setOrderFilter(f as OrderFilter)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
                     orderFilter === f
                       ? 'bg-indigo-800 border-indigo-800 text-white shadow-sm'

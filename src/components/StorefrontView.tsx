@@ -56,7 +56,11 @@ export default function StorefrontView() {
 
   // Inline auth gate message state
   const [showAuthGate, setShowAuthGate] = useState(false);
-  const [postAuthAction, setPostAuthAction] = useState<{ type: string; payload: any } | null>(null);
+  type PostAuthAction =
+    | { type: 'add_to_cart'; payload: { product: Product; qty: number } }
+    | { type: 'view_cart'; payload: null };
+  const [postAuthAction, setPostAuthAction] = useState<PostAuthAction | null>(null);
+  const [lastOrderNumber, setLastOrderNumber] = useState<string>('');
 
   const categories = ['All', 'Electronics', 'Audio', 'Office', 'Accessories'];
 
@@ -118,6 +122,7 @@ export default function StorefrontView() {
 
   const handlePlaceOrder = () => {
     checkout(`${fullName}, ${address}, ${city}, ${zip}, ${country}`);
+    setLastOrderNumber(`KL-${Math.floor(100000 + Math.random() * 900000)}`);
     setSubView('success');
   };
 
@@ -506,7 +511,7 @@ export default function StorefrontView() {
                     onClick={() => setAuthMode('signup')}
                     className="text-xs text-indigo-700 hover:underline cursor-pointer"
                   >
-                    Don't have an account? Create one
+                    Don&apos;t have an account? Create one
                   </button>
                 ) : (
                   <button 
@@ -830,7 +835,7 @@ export default function StorefrontView() {
               <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-4 text-xs text-left space-y-2.5">
                 <div className="flex justify-between">
                   <span className="font-medium text-slate-500">Order Number:</span>
-                  <span className="font-bold text-slate-900 font-mono">#KL-{Math.floor(100000 + Math.random() * 900000)}</span>
+                  <span className="font-bold text-slate-900 font-mono">#{lastOrderNumber}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="font-medium text-slate-500">Estimated Delivery:</span>

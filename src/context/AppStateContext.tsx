@@ -282,7 +282,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     }));
   };
 
-  const checkout = (address: string) => {
+  const checkout = (_address: string) => {
     setState((prev) => {
       if (prev.cart.length === 0) return prev;
 
@@ -296,7 +296,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
         cartItemsByVendor[vendorId].push(item);
       });
 
-      const newOrders: Order[] = Object.keys(cartItemsByVendor).map((vendorId, index) => {
+      const newOrders: Order[] = Object.keys(cartItemsByVendor).map((vendorId) => {
         const items = cartItemsByVendor[vendorId];
         const vendorName = items[0].product.vendor;
         const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
