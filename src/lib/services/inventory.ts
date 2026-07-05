@@ -191,7 +191,7 @@ export async function bulkUpdateProducts(
   filters: ProductFilters,
   updates: Record<string, unknown>,
   confirm: boolean = false,
-  actor?: string
+  actor: string | null = null
 ) {
   const targetProducts = await getProductsFiltered(supabase, orgId, filters);
   
@@ -217,18 +217,19 @@ export async function bulkUpdateProducts(
     .eq('org_id', orgId);
     
   if (error) throw error;
-  
-  if (actor) {
-    await logAction(supabase, {
-      orgId,
-      actor,
-      action: 'bulk_update_products',
-      targetTable: 'products',
-      targetIds,
-      details: { filters, updates },
-    });
-  }
-  
+
+  // Audit every MCP write (SKILLS.md rule 12). actor is null for system/MCP
+  // callers — audit_log.actor is a nullable uuid FK, so a plain string would
+  // violate the constraint and abort the whole tool call.
+  await logAction(supabase, {
+    orgId,
+    actor,
+    action: 'bulk_update_products',
+    targetTable: 'products',
+    targetIds,
+    details: { filters, updates },
+  });
+
   return {
     success: true,
     message: `Successfully updated ${targetIds.length} products.`,

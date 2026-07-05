@@ -122,7 +122,7 @@ export async function POST(req: Request) {
         })
       },
       async ({ filters, updates, confirm }) => {
-        const result = await bulkUpdateProducts(supabase, orgId, filters, updates, confirm, 'mcp-system-user')
+        const result = await bulkUpdateProducts(supabase, orgId, filters, updates, confirm, null)
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
       }
     )
