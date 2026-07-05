@@ -3,10 +3,28 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
+interface VendorRow {
+  id: string;
+  name: string;
+  plan: string;
+  isActive: boolean;
+  productCount: number;
+  orderCount: number;
+}
+
+interface PlatformSettings {
+  id: string;
+  global_fee?: number;
+  free_plan_cost?: number;
+  pro_plan_cost?: number;
+  platform_status?: string;
+  global_banner?: string;
+}
+
 export default function AdminDashboardView() {
   const supabase = createClient();
-  const [vendors, setVendors] = useState<any[]>([]);
-  const [platformSettings, setPlatformSettings] = useState<any>(null);
+  const [vendors, setVendors] = useState<VendorRow[]>([]);
+  const [platformSettings, setPlatformSettings] = useState<PlatformSettings | null>(null);
 
   const [tab, setTab] = useState<'vendors' | 'settings'>('vendors');
   
@@ -47,11 +65,11 @@ export default function AdminDashboardView() {
     loadData();
   }, []);
 
-  const toggleVendorStatus = (id: string) => {
+  const toggleVendorStatus = (_id: string) => {
     // Requires updating org status
   };
 
-  const updateVendorPlan = (id: string, plan: string) => {
+  const updateVendorPlan = (_id: string, _plan: string) => {
     // Requires updating org plan
   };
 

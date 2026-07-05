@@ -131,7 +131,7 @@ export async function POST(req: Request) {
     const transport = new WebStandardStreamableHTTPServerTransport()
     await server.connect(transport)
     return await transport.handleRequest(req)
-  } catch (error: any) {
+  } catch (error) {
     console.error('MCP Server Error:', error)
     return new Response('Internal Server Error', { status: 500 })
   }

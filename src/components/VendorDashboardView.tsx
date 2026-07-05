@@ -6,12 +6,79 @@ import { createClient } from '@/lib/supabase/client';
 type VendorTab = 'overview' | 'products' | 'orders' | 'warehouses' | 'purchase-orders' | 'settings';
 type OrderFilter = 'All' | 'Pending' | 'Paid' | 'Fulfilled' | 'Cancelled';
 
+interface DashboardProduct {
+  id: string;
+  name: string;
+  sku: string;
+  price: number;
+  stock: number;
+  status?: string;
+  image?: string;
+  [key: string]: unknown;
+}
+
+interface DashboardOrder {
+  id: string;
+  customerName: string;
+  date: string;
+  total: number;
+  items: string[];
+  status: string;
+  [key: string]: unknown;
+}
+
+interface DashboardWarehouse {
+  id: string;
+  name: string;
+  location: string;
+  capacity: number;
+  utilized: number;
+  status: string;
+  [key: string]: unknown;
+}
+
+interface DashboardPurchaseOrder {
+  id: string;
+  supplier: string;
+  amount: number;
+  date: string;
+  status: string;
+  [key: string]: unknown;
+}
+
+interface NewProductInput {
+  name: string;
+  sku: string;
+  price: number;
+  stock: number;
+  isPublished: boolean;
+  image: string;
+  description?: string;
+  vendor?: string;
+  orgId?: string;
+}
+
+interface NewWarehouseInput {
+  name: string;
+  location: string;
+  capacity?: number;
+  utilized?: number;
+  status?: string;
+}
+
+interface NewPurchaseOrderInput {
+  supplier: string;
+  amount: number;
+  date: string;
+  status: string;
+}
+
 export default function VendorDashboardView() {
   const supabase = createClient();
-  const [myProducts, setMyProducts] = useState<any[]>([]);
-  const [myOrders, setMyOrders] = useState<any[]>([]);
-  const [myWarehouses, setMyWarehouses] = useState<any[]>([]);
-  const [myPurchaseOrders, setMyPurchaseOrders] = useState<any[]>([]);
+  const [myProducts, setMyProducts] = useState<DashboardProduct[]>([]);
+  const [myOrders, setMyOrders] = useState<DashboardOrder[]>([]);
+  const [myWarehouses, setMyWarehouses] = useState<DashboardWarehouse[]>([]);
+  const [myPurchaseOrders, setMyPurchaseOrders] = useState<DashboardPurchaseOrder[]>([]);
   const [vendorOrgId, setVendorOrgId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,7 +132,7 @@ export default function VendorDashboardView() {
     loadData();
   }, []);
 
-  const addProduct = async (p: any) => {
+  const addProduct = async (p: NewProductInput) => {
     if(!vendorOrgId) return;
     const { data } = await supabase.from('products').insert({
       org_id: vendorOrgId, name: p.name, sku: p.sku, price: p.price, is_published: p.isPublished, image_url: p.image
@@ -76,7 +143,7 @@ export default function VendorDashboardView() {
     }
   };
 
-  const addWarehouse = async (w: any) => {
+  const addWarehouse = async (w: NewWarehouseInput) => {
     if(!vendorOrgId) return;
     const { data } = await supabase.from('warehouses').insert({
       org_id: vendorOrgId, name: w.name, location: w.location
@@ -84,7 +151,7 @@ export default function VendorDashboardView() {
     if(data) setMyWarehouses([...myWarehouses, data]);
   };
 
-  const addPurchaseOrder = async (po: any) => {
+  const addPurchaseOrder = async (_po: NewPurchaseOrderInput) => {
     // Requires supplier_id to work correctly
   };
 
@@ -140,8 +207,8 @@ export default function VendorDashboardView() {
       const key = await generateVendorApiKey(apiKeyName);
       setGeneratedKey(key);
       setApiKeyName('My MCP Server Key');
-    } catch (err: any) {
-      setKeyError(err.message || 'Failed to generate API Key');
+    } catch (err) {
+      setKeyError(err instanceof Error ? err.message : 'Failed to generate API Key');
     } finally {
       setIsGeneratingKey(false);
     }

@@ -34,20 +34,25 @@ async function main() {
   const stdioTransport = new StdioServerTransport()
   
   // Forward messages from Claude (stdio) to Next.js (HTTP)
-  stdioTransport.onmessage = async (message: any) => {
-    // Send request to our remote server
-    if ('method' in message && message.method === 'tools/call') {
-       const result = await client.callTool(message.params as any)
+  stdioTransport.onmessage = async (message) => {
+    // Only JSON-RPC requests (they carry both a method and an id) are proxied.
+    if (!('method' in message) || !('id' in message)) return
+    const id = message.id
+
+    if (message.method === 'tools/call') {
+       const result = await client.callTool(
+         message.params as unknown as { name: string; arguments?: Record<string, unknown> }
+       )
        await stdioTransport.send({
          jsonrpc: '2.0',
-         id: message.id as any,
+         id,
          result
        })
-    } else if ('method' in message && message.method === 'tools/list') {
+    } else if (message.method === 'tools/list') {
        const result = await client.listTools()
        await stdioTransport.send({
          jsonrpc: '2.0',
-         id: message.id as any,
+         id,
          result
        })
     }

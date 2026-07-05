@@ -7,7 +7,7 @@ export async function logAction(
   action: string,
   target_table: string,
   target_ids: string[],
-  details: Record<string, any>
+  details: Record<string, unknown>
 ) {
   const { error } = await supabase.from('audit_log').insert({
     org_id: orgId,

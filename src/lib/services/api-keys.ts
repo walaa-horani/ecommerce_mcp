@@ -1,4 +1,4 @@
-import { createHash } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
@@ -6,7 +6,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * To be used by the vendor dashboard API key generation endpoint.
  */
 export function generateApiKeySecret(): { rawKey: string; keyHash: string } {
-  const { randomBytes } = require('crypto')
   const rawKey = 'mcp_' + randomBytes(24).toString('base64url')
   const keyHash = createHash('sha256').update(rawKey).digest('hex')
   return { rawKey, keyHash }
