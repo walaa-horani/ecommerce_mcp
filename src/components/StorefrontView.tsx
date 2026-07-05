@@ -1,10 +1,40 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { createClient } from '@/lib/supabase/client';
 import { useAppState, Product, CartItem } from '@/context/AppStateContext';
 
 export default function StorefrontView() {
   const { state, addToCart, updateCartQty, removeFromCart, checkout, loginCustomer, logoutCustomer } = useAppState();
+
+  // Sync real Supabase auth session into the storefront so navbar + cart gating reflect
+  // the actual signed-in customer, not mock state.
+  useEffect(() => {
+    const supabase = createClient();
+
+    const sync = (user: { email?: string } | null) => {
+      if (user?.email) {
+        loginCustomer(user.email.split('@')[0], user.email);
+      } else {
+        logoutCustomer();
+      }
+    };
+
+    supabase.auth.getUser().then(({ data }) => sync(data.user));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) =>
+      sync(session?.user ?? null)
+    );
+
+    return () => sub.subscription.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleRealSignOut = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    logoutCustomer();
+  };
   
   const [subView, setSubView] = useState<'home' | 'detail' | 'cart' | 'checkout' | 'success' | 'orders' | 'auth'>('home');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -144,23 +174,31 @@ export default function StorefrontView() {
                   </span>
                   <span className="hidden sm:inline">My Orders</span>
                 </button>
-                <button 
-                  onClick={() => logoutCustomer()}
+                <button
+                  onClick={handleRealSignOut}
                   className="text-xs font-semibold text-slate-500 hover:text-rose-600 cursor-pointer"
                 >
                   Sign Out
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => { setAuthMode('signin'); setSubView('auth'); }}
-                className="text-sm font-medium text-slate-700 hover:text-indigo-800 flex items-center gap-1.5 cursor-pointer"
-              >
-                <svg className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                Sign In
-              </button>
+              <div className="flex items-center gap-3">
+                <Link
+                  href="/account/login"
+                  className="text-sm font-medium text-slate-700 hover:text-indigo-800 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <svg className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  Sign In
+                </Link>
+                <Link
+                  href="/account/login?mode=signup"
+                  className="text-sm font-semibold bg-indigo-800 hover:bg-indigo-900 text-white px-4 py-1.5 rounded-lg shadow-sm transition cursor-pointer"
+                >
+                  Sign Up
+                </Link>
+              </div>
             )}
 
             <button
@@ -868,14 +906,12 @@ export default function StorefrontView() {
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p>© 2026 Kinetic Ledger Inc. All rights reserved.</p>
           <div className="flex gap-4">
-            <button 
-              onClick={() => {
-                alert('Welcome Merchant! To configure your store, toggle to "Vendor Dashboard" or "Platform Admin" mode in the toolbar at the top of the screen.');
-              }}
+            <Link
+              href="/onboarding/create-store"
               className="text-slate-500 hover:text-indigo-800 font-medium cursor-pointer"
             >
-              Sell on Kinetic Ledger
-            </button>
+              Become a vendor
+            </Link>
           </div>
         </div>
       </footer>
