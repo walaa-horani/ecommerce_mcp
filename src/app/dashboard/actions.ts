@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { getViewer } from '@/lib/services/roles'
+import { assertPlanLimit } from '@/lib/services/plans'
 import {
   createProduct,
   createPurchaseOrder,
@@ -51,6 +52,7 @@ export async function addProductAction(formData: FormData): Promise<ActionResult
 
     const supabase = await createClient()
     const orgId = await requireVendorOrg(supabase)
+    await assertPlanLimit(supabase, orgId, 'add_product')
     await createProduct(supabase, orgId, parsed.data)
     revalidatePath('/dashboard')
     revalidatePath('/')
@@ -75,6 +77,7 @@ export async function addWarehouseAction(formData: FormData): Promise<ActionResu
 
     const supabase = await createClient()
     const orgId = await requireVendorOrg(supabase)
+    await assertPlanLimit(supabase, orgId, 'add_warehouse')
     await createWarehouse(supabase, orgId, parsed.data.name, parsed.data.location)
     revalidatePath('/dashboard')
     return { ok: true }
@@ -90,6 +93,7 @@ export async function addPurchaseOrderAction(formData: FormData): Promise<Action
 
     const supabase = await createClient()
     const orgId = await requireVendorOrg(supabase)
+    await assertPlanLimit(supabase, orgId, 'purchase_orders')
     await createPurchaseOrder(supabase, orgId, supplier)
     revalidatePath('/dashboard')
     return { ok: true }
