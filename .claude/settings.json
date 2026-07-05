@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh api *)",
+      "WebFetch(domain:skills.sh)",
+      "Bash(npx --yes skills --help)",
+      "Bash(npx --yes skills add vercel-labs/agent-browser --global --all --agent claude-code -y)"
+    ]
+  }
+}
