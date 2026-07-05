@@ -1,1054 +1,457 @@
-'use client';
+'use client'
 
-import React, { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import type { VendorDashboardData } from '@/lib/services/vendor-dashboard'
+import {
+  addProductAction,
+  addPurchaseOrderAction,
+  addWarehouseAction,
+  updateOrderStatusAction,
+  updateStoreNameAction,
+  generateVendorApiKey,
+  type ActionResult,
+} from '@/app/dashboard/actions'
 
-type VendorTab = 'overview' | 'products' | 'orders' | 'warehouses' | 'purchase-orders' | 'settings';
-type OrderFilter = 'All' | 'Pending' | 'Paid' | 'Fulfilled' | 'Cancelled';
+type VendorTab = 'overview' | 'products' | 'orders' | 'warehouses' | 'purchase-orders' | 'settings'
+type OrderFilter = 'All' | 'Pending' | 'Paid' | 'Fulfilled' | 'Cancelled'
 
-interface DashboardProduct {
-  id: string;
-  name: string;
-  sku: string;
-  price: number;
-  stock: number;
-  status?: string;
-  image?: string;
-  [key: string]: unknown;
-}
+const NAV: { id: VendorTab; label: string; icon: string }[] = [
+  { id: 'overview', label: 'Dashboard', icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2v-4zM14 16a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2v-4z' },
+  { id: 'products', label: 'Products', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
+  { id: 'orders', label: 'Orders', icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z' },
+  { id: 'warehouses', label: 'Warehouses', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5' },
+  { id: 'purchase-orders', label: 'Purchase Orders', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
+  { id: 'settings', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' },
+]
 
-interface DashboardOrder {
-  id: string;
-  customerName: string;
-  date: string;
-  total: number;
-  items: string[];
-  status: string;
-  [key: string]: unknown;
-}
+const money = (v: number) => `$${v.toFixed(2)}`
+const inputClass = 'w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600'
+const labelClass = 'block font-bold text-slate-500 uppercase mb-1'
 
-interface DashboardWarehouse {
-  id: string;
-  name: string;
-  location: string;
-  capacity: number;
-  utilized: number;
-  status: string;
-  [key: string]: unknown;
-}
+export default function VendorDashboardView({ data }: { data: VendorDashboardData }) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [tab, setTab] = useState<VendorTab>('overview')
+  const [orderFilter, setOrderFilter] = useState<OrderFilter>('All')
+  const [modal, setModal] = useState<null | 'product' | 'warehouse' | 'po'>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [settingsSaved, setSettingsSaved] = useState(false)
+  const [storeName, setStoreName] = useState(data.store.name)
 
-interface DashboardPurchaseOrder {
-  id: string;
-  supplier: string;
-  amount: number;
-  date: string;
-  status: string;
-  [key: string]: unknown;
-}
+  // MCP API key generation (Pro feature) — raw key is shown exactly once.
+  const [apiKeyName, setApiKeyName] = useState('My MCP Server Key')
+  const [generatedKey, setGeneratedKey] = useState<string | null>(null)
+  const [isGeneratingKey, setIsGeneratingKey] = useState(false)
+  const [keyError, setKeyError] = useState<string | null>(null)
 
-interface NewProductInput {
-  name: string;
-  sku: string;
-  price: number;
-  stock: number;
-  isPublished: boolean;
-  image: string;
-  description?: string;
-  vendor?: string;
-  orgId?: string;
-}
-
-interface NewWarehouseInput {
-  name: string;
-  location: string;
-  capacity?: number;
-  utilized?: number;
-  status?: string;
-}
-
-interface NewPurchaseOrderInput {
-  supplier: string;
-  amount: number;
-  date: string;
-  status: string;
-}
-
-export default function VendorDashboardView() {
-  const supabase = createClient();
-  const [myProducts, setMyProducts] = useState<DashboardProduct[]>([]);
-  const [myOrders, setMyOrders] = useState<DashboardOrder[]>([]);
-  const [myWarehouses, setMyWarehouses] = useState<DashboardWarehouse[]>([]);
-  const [myPurchaseOrders, setMyPurchaseOrders] = useState<DashboardPurchaseOrder[]>([]);
-  const [vendorOrgId, setVendorOrgId] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function loadData() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data: member } = await supabase.from('memberships').select('org_id').eq('user_id', user.id).single();
-      if (!member) return;
-      
-      const oId = member.org_id;
-      setVendorOrgId(oId);
-
-      // Load Products
-      const { data: prods } = await supabase.from('products').select('*, product_stock(quantity)').eq('org_id', oId);
-      if (prods) {
-        setMyProducts(prods.map(p => ({
-          ...p,
-          stock: p.product_stock?.[0]?.quantity || 0,
-          status: (p.product_stock?.[0]?.quantity || 0) > 10 ? 'In Stock' : 'Low Stock',
-          image: p.image_url || 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=500&auto=format&fit=crop&q=60'
-        })));
-      }
-
-      // Load Orders
-      const { data: ords } = await supabase.from('orders').select('*').eq('org_id', oId);
-      if (ords) {
-        setMyOrders(ords.map(o => ({
-          ...o,
-          customerName: 'Customer', // Would require relation join
-          date: new Date(o.created_at).toISOString().split('T')[0],
-          total: Number(o.total_amount) || 0,
-          items: [], // Would require fetching order_items relation
-        })));
-      }
-
-      // Load Warehouses
-      const { data: whs } = await supabase.from('warehouses').select('*').eq('org_id', oId);
-      if (whs) {
-        setMyWarehouses(whs.map(w => ({
-          ...w,
-          capacity: 1000,
-          utilized: 0,
-          status: 'Operational'
-        })));
-      }
-
-      // Load POs
-      const { data: pos } = await supabase.from('purchase_orders').select('*').eq('org_id', oId);
-      if (pos) setMyPurchaseOrders(pos);
-    }
-    loadData();
-  }, []);
-
-  const addProduct = async (p: NewProductInput) => {
-    if(!vendorOrgId) return;
-    const { data } = await supabase.from('products').insert({
-      org_id: vendorOrgId, name: p.name, sku: p.sku, price: p.price, is_published: p.isPublished, image_url: p.image
-    }).select().single();
-    if (data) {
-      await supabase.from('product_stock').insert({ org_id: vendorOrgId, product_id: data.id, quantity: p.stock });
-      setMyProducts([...myProducts, { ...p, id: data.id, stock: p.stock, status: p.stock > 10 ? 'In Stock' : 'Low Stock' }]);
-    }
-  };
-
-  const addWarehouse = async (w: NewWarehouseInput) => {
-    if(!vendorOrgId) return;
-    const { data } = await supabase.from('warehouses').insert({
-      org_id: vendorOrgId, name: w.name, location: w.location
-    }).select().single();
-    if(data) setMyWarehouses([...myWarehouses, data]);
-  };
-
-  const addPurchaseOrder = async (_po: NewPurchaseOrderInput) => {
-    // Requires supplier_id to work correctly
-  };
-
-  const updateOrderStatus = async (id: string, s: string) => {
-    await supabase.from('orders').update({ status: s }).eq('id', id);
-    setMyOrders(myOrders.map(o => o.id === id ? { ...o, status: s } : o));
-  };
-
-  const [tab, setTab] = useState<VendorTab>('overview');
-  
-  // Product Form State
-  const [showAddProductModal, setShowAddProductModal] = useState(false);
-  const [prodName, setProdName] = useState('');
-  const [prodPrice, setProdPrice] = useState('');
-  const [prodDesc, setProdDesc] = useState('');
-  const [prodSku, setProdSku] = useState('');
-  const [prodStock, setProdStock] = useState('');
-  const [prodImage, setProdImage] = useState('https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3');
-
-  // Warehouse Form State
-  const [showAddWarehouseModal, setShowAddWarehouseModal] = useState(false);
-  const [whName, setWhName] = useState('');
-  const [whLocation, setWhLocation] = useState('');
-  const [whCapacity, setWhCapacity] = useState('');
-
-  // Purchase Order Form State
-  const [showNewPoModal, setShowNewPoModal] = useState(false);
-  const [poSupplier, setPoSupplier] = useState('');
-  const [poAmount, setPoAmount] = useState('');
-
-  // Store Settings State
-  const [storeName, setStoreName] = useState('TechNova Electronics');
-  const [storeDesc, setStoreDesc] = useState('Premium developer peripherals and sensory instrumentation.');
-  const [storeEmail, setStoreEmail] = useState('support@technova.io');
-  const [storePhone, setStorePhone] = useState('+1 (555) 0199');
-  const [storeLogo, setStoreLogo] = useState('https://technova.io/logo.png');
-  const [storeCurrency, setStoreCurrency] = useState('USD');
-  const [settingsSuccess, setSettingsSuccess] = useState(false);
-
-  // API Key State
-  const [apiKeyName, setApiKeyName] = useState('My MCP Server Key');
-  const [generatedKey, setGeneratedKey] = useState<string | null>(null);
-  const [isGeneratingKey, setIsGeneratingKey] = useState(false);
-  const [keyError, setKeyError] = useState<string | null>(null);
-
-  const handleGenerateApiKey = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsGeneratingKey(true);
-    setKeyError(null);
-    setGeneratedKey(null);
+  const handleGenerateApiKey = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setIsGeneratingKey(true)
+    setKeyError(null)
+    setGeneratedKey(null)
     try {
-      const { generateVendorApiKey } = await import('@/app/dashboard/actions');
-      const key = await generateVendorApiKey(apiKeyName);
-      setGeneratedKey(key);
-      setApiKeyName('My MCP Server Key');
+      const key = await generateVendorApiKey(apiKeyName)
+      setGeneratedKey(key)
+      setApiKeyName('My MCP Server Key')
     } catch (err) {
-      setKeyError(err instanceof Error ? err.message : 'Failed to generate API Key');
+      setKeyError(err instanceof Error ? err.message : 'Failed to generate API Key')
     } finally {
-      setIsGeneratingKey(false);
+      setIsGeneratingKey(false)
     }
-  };
+  }
 
-  // Orders Filter State
-  const [orderFilter, setOrderFilter] = useState<OrderFilter>('All');
+  const { products, orders, warehouses, purchaseOrders, metrics, store } = data
 
-  // Computed metrics
-  const lowStockCount = myProducts.filter(p => p.stock > 0 && p.stock <= 3).length;
-  const totalSales = myOrders.reduce((sum, o) => sum + (o.status !== 'Cancelled' ? o.total : 0), 0);
+  const submit = (fn: () => Promise<ActionResult>, onOk?: () => void) => {
+    setError(null)
+    startTransition(async () => {
+      const res = await fn()
+      if (!res.ok) setError(res.error)
+      else {
+        onOk?.()
+        router.refresh()
+      }
+    })
+  }
 
-  const handleAddProductSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    addProduct({
-      name: prodName,
-      price: Number(prodPrice),
-      description: prodDesc,
-      vendor: storeName,
-      orgId: 'vendor-1',
-      sku: prodSku,
-      stock: Number(prodStock),
-      isPublished: true,
-      image: prodImage,
-    });
-    setShowAddProductModal(false);
-    // Reset Form
-    setProdName('');
-    setProdPrice('');
-    setProdDesc('');
-    setProdSku('');
-    setProdStock('');
-  };
+  const onFormSubmit =
+    (action: (fd: FormData) => Promise<ActionResult>, onOk?: () => void) =>
+    (e: React.FormEvent<HTMLFormElement>) => {
+      e.preventDefault()
+      const fd = new FormData(e.currentTarget)
+      submit(() => action(fd), onOk)
+    }
 
-  const handleAddWarehouseSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    addWarehouse({
-      name: whName,
-      location: whLocation,
-      capacity: Number(whCapacity),
-      utilized: 0,
-      status: 'Active',
-    });
-    setShowAddWarehouseModal(false);
-    // Reset Form
-    setWhName('');
-    setWhLocation('');
-    setWhCapacity('');
-  };
+  const kpis = [
+    { label: 'Total Sales', value: money(metrics.totalSales), desc: 'Active orders revenue' },
+    { label: 'Orders Volume', value: metrics.ordersVolume, desc: 'Processed client orders' },
+    { label: 'Low Stock Alerts', value: metrics.lowStockCount, desc: 'Requires replenishment' },
+    { label: 'Active Products', value: metrics.activeProducts, desc: 'Published catalog' },
+  ]
 
-  const handleAddPoSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    addPurchaseOrder({
-      supplier: poSupplier,
-      amount: Number(poAmount),
-      date: new Date().toISOString().split('T')[0],
-      status: 'Pending',
-    });
-    setShowNewPoModal(false);
-    // Reset Form
-    setPoSupplier('');
-    setPoAmount('');
-  };
-
-  const handleSaveSettings = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSettingsSuccess(true);
-    setTimeout(() => setSettingsSuccess(false), 3000);
-  };
+  const lowStock = products.filter((p) => p.stock > 0 && p.stock <= p.lowStockThreshold)
 
   return (
-    <div className="flex min-h-screen bg-[#F8FAFC]">
+    <div className="flex flex-1 bg-[#F8FAFC] min-h-[calc(100vh-56px)]">
       {/* Sidebar */}
-      <aside className="w-[240px] border-r border-[#E2E8F0] bg-white flex flex-col justify-between p-4 sticky top-8 h-[calc(100vh-32px)]">
-        <div className="space-y-6">
-          {/* Logo */}
-          <div className="flex items-center gap-2 px-2 py-1.5">
-            <span className="h-7 w-7 bg-indigo-800 rounded-lg flex items-center justify-center text-white font-bold text-xs">KL</span>
-            <span className="font-bold text-sm text-slate-900 tracking-tight">Kinetic Ops</span>
-          </div>
-
-          {/* Navigation */}
-          <nav className="space-y-1">
-            {[
-              { id: 'overview', label: 'Dashboard', icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2v-4zM14 16a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2v-4z' },
-              { id: 'products', label: 'Products', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
-              { id: 'orders', label: 'Orders', icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z' },
-              { id: 'warehouses', label: 'Warehouses', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5' },
-              { id: 'purchase-orders', label: 'Purchase Orders', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
-              { id: 'settings', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' }
-            ].map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setTab(item.id as VendorTab)}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                  tab === item.id
-                    ? 'bg-indigo-50 text-indigo-800'
-                    : 'text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
-                </svg>
-                {item.label}
-              </button>
-            ))}
-          </nav>
-        </div>
-
-        {/* Plan Badge */}
-        <div className="border-t border-[#E2E8F0] pt-4 mt-6">
+      <aside className="w-[240px] border-r border-[#E2E8F0] bg-white flex flex-col justify-between p-4 sticky top-14 h-[calc(100vh-56px)]">
+        <nav className="space-y-1">
+          {NAV.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setTab(item.id)}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${tab === item.id ? 'bg-indigo-50 text-indigo-800' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
+              </svg>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+        <div className="border-t border-[#E2E8F0] pt-4">
           <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 flex items-center justify-between">
-            <div className="space-y-0.5">
+            <div className="space-y-0.5 min-w-0">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Current Plan</span>
-              <p className="text-xs font-bold text-slate-800">TechNova Store</p>
+              <p className="text-xs font-bold text-slate-800 truncate">{store.name}</p>
             </div>
-            <span className="bg-indigo-600 text-white font-bold text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
-              Pro
-            </span>
+            <span className="bg-indigo-600 text-white font-bold text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">{store.plan}</span>
           </div>
         </div>
       </aside>
 
-      {/* Main Content Area */}
+      {/* Main */}
       <main className="flex-1 p-8 overflow-y-auto space-y-6">
-        
-        {/* Topbar inside Main */}
         <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-4">
           <div>
             <h1 className="text-xl font-bold text-slate-900 capitalize">
               {tab === 'overview' ? 'Dashboard Overview' : tab.replace('-', ' ')}
             </h1>
-            <p className="text-xs text-slate-400">
-              Operations portal for {storeName}.
-            </p>
+            <p className="text-xs text-slate-400">Operations portal for {store.name}.</p>
           </div>
-
           <div className="flex items-center gap-2">
-            {tab === 'products' && (
-              <button
-                onClick={() => setShowAddProductModal(true)}
-                className="bg-indigo-800 hover:bg-indigo-900 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-sm transition cursor-pointer"
-              >
-                + Add Product
-              </button>
-            )}
-            {tab === 'warehouses' && (
-              <button
-                onClick={() => setShowAddWarehouseModal(true)}
-                className="bg-indigo-800 hover:bg-indigo-900 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-sm transition cursor-pointer"
-              >
-                + Add Warehouse
-              </button>
-            )}
-            {tab === 'purchase-orders' && (
-              <button
-                onClick={() => setShowNewPoModal(true)}
-                className="bg-indigo-800 hover:bg-indigo-900 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-sm transition cursor-pointer"
-              >
-                + New Purchase Order
-              </button>
-            )}
-            {tab === 'overview' && (
-              <button 
-                onClick={() => alert('Exporting sales report CSV...')}
-                className="bg-white border border-[#E2E8F0] hover:bg-slate-50 text-slate-700 text-xs font-bold px-4 py-2 rounded-lg shadow-sm transition cursor-pointer"
-              >
-                Export Report
-              </button>
-            )}
+            {tab === 'products' && <HeaderButton onClick={() => setModal('product')}>+ Add Product</HeaderButton>}
+            {tab === 'warehouses' && <HeaderButton onClick={() => setModal('warehouse')}>+ Add Warehouse</HeaderButton>}
+            {tab === 'purchase-orders' && <HeaderButton onClick={() => setModal('po')}>+ New Purchase Order</HeaderButton>}
           </div>
         </div>
 
-        {/* TAB: OVERVIEW */}
+        {error && <div className="bg-rose-50 border-l-4 border-rose-500 text-rose-800 text-xs px-4 py-3 rounded-lg">{error}</div>}
+
+        {/* OVERVIEW */}
         {tab === 'overview' && (
           <div className="space-y-6">
-            {/* KPI Cards Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {[
-                { label: 'Total Sales', value: `$${totalSales.toFixed(2)}`, desc: 'Active orders revenue', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
-                { label: 'Orders Volume', value: myOrders.length, desc: 'Processed client orders', icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z' },
-                { label: 'Low Stock Alerts', value: lowStockCount, desc: 'Requires replenishment', icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z' },
-                { label: 'Active Products', value: myProducts.length, desc: 'Published catalog', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2' }
-              ].map((card, idx) => (
-                <div key={idx} className="bg-white rounded-lg border border-[#E2E8F0] shadow-sm p-4 flex items-center justify-between">
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{card.label}</span>
-                    <h3 className="text-xl font-bold text-slate-900 tabular-nums">{card.value}</h3>
-                    <p className="text-[10px] text-slate-400">{card.desc}</p>
-                  </div>
-                  <div className="h-10 w-10 bg-indigo-50 text-indigo-800 rounded-lg flex items-center justify-center">
-                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={card.icon} />
-                    </svg>
-                  </div>
+              {kpis.map((card) => (
+                <div key={card.label} className="bg-white rounded-lg border border-[#E2E8F0] shadow-sm p-4">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{card.label}</span>
+                  <h3 className="text-xl font-bold text-slate-900 tabular-nums">{card.value}</h3>
+                  <p className="text-[10px] text-slate-400">{card.desc}</p>
                 </div>
               ))}
             </div>
-
-            {/* Middle Section: Recent Orders & Alerts */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Recent Orders Table */}
               <div className="lg:col-span-2 bg-white rounded-lg border border-[#E2E8F0] shadow-sm p-6 space-y-4">
-                <h3 className="font-bold text-slate-900 text-sm border-b border-[#E2E8F0] pb-2 uppercase tracking-wide">
-                  Recent Orders
-                </h3>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-[#E2E8F0] text-xs">
-                    <thead className="bg-[#F8FAFC]">
-                      <tr>
+                <h3 className="font-bold text-slate-900 text-sm border-b border-[#E2E8F0] pb-2 uppercase tracking-wide">Recent Orders</h3>
+                {orders.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-4">No orders yet.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-[#E2E8F0] text-xs">
+                      <thead className="bg-[#F8FAFC]"><tr>
                         <th className="px-4 py-2 text-left font-bold text-slate-500 uppercase">Order ID</th>
                         <th className="px-4 py-2 text-left font-bold text-slate-500 uppercase">Customer</th>
                         <th className="px-4 py-2 text-right font-bold text-slate-500 uppercase">Total</th>
                         <th className="px-4 py-2 text-center font-bold text-slate-500 uppercase">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#E2E8F0]">
-                      {myOrders.slice(0, 5).map((order) => (
-                        <tr key={order.id} className="hover:bg-slate-50/50">
-                          <td className="px-4 py-3 font-bold text-slate-900 font-mono">{order.id}</td>
-                          <td className="px-4 py-3 text-slate-600">{order.customerName}</td>
-                          <td className="px-4 py-3 text-right font-bold text-slate-900 tabular-nums">${order.total.toFixed(2)}</td>
-                          <td className="px-4 py-3 text-center">
-                            <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                              order.status === 'Paid'
-                                ? 'bg-indigo-50 text-indigo-800 border border-indigo-200'
-                                : order.status === 'Fulfilled'
-                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                                : 'bg-slate-100 text-slate-800 border border-slate-200'
-                            }`}>
-                              {order.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </tr></thead>
+                      <tbody className="divide-y divide-[#E2E8F0]">
+                        {orders.slice(0, 5).map((o) => (
+                          <tr key={o.id}>
+                            <td className="px-4 py-3 font-mono text-slate-900">#{o.id.slice(0, 8)}</td>
+                            <td className="px-4 py-3 text-slate-600">{o.customerName}</td>
+                            <td className="px-4 py-3 text-right font-bold text-slate-900 tabular-nums">{money(o.total)}</td>
+                            <td className="px-4 py-3 text-center"><StatusBadge status={o.status} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
-
-              {/* Low Stock Alerts */}
               <div className="bg-white rounded-lg border-l-4 border-l-[#D97706] border border-[#E2E8F0] shadow-sm p-6 space-y-4">
-                <h3 className="font-bold text-slate-900 text-sm border-b border-[#E2E8F0] pb-2 uppercase tracking-wide flex items-center gap-1.5">
-                  <svg className="h-4 w-4 text-[#D97706]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  Low Stock Alerts
-                </h3>
-                <div className="space-y-3">
-                  {myProducts.filter(p => p.stock > 0 && p.stock <= 3).map((prod) => (
-                    <div key={prod.id} className="p-3 bg-amber-50/30 rounded-lg border border-amber-100 flex justify-between items-center text-xs">
-                      <div>
-                        <strong className="text-slate-900 block font-semibold">{prod.name}</strong>
-                        <span className="text-[10px] text-slate-400 font-mono uppercase">SKU: {prod.sku}</span>
-                      </div>
-                      <span className="bg-[#D97706] text-white px-2 py-0.5 rounded-full font-bold text-[10px] tabular-nums">
-                        {prod.stock} left
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                <h3 className="font-bold text-slate-900 text-sm border-b border-[#E2E8F0] pb-2 uppercase tracking-wide">Low Stock Alerts</h3>
+                {lowStock.length === 0 ? (
+                  <p className="text-xs text-slate-400">All stock levels healthy.</p>
+                ) : lowStock.map((p) => (
+                  <div key={p.id} className="p-3 bg-amber-50/30 rounded-lg border border-amber-100 flex justify-between items-center text-xs">
+                    <div><strong className="text-slate-900 block font-semibold">{p.name}</strong><span className="text-[10px] text-slate-400 font-mono uppercase">SKU: {p.sku}</span></div>
+                    <span className="bg-[#D97706] text-white px-2 py-0.5 rounded-full font-bold text-[10px] tabular-nums">{p.stock} left</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
         )}
 
-        {/* TAB: PRODUCTS */}
+        {/* PRODUCTS */}
         {tab === 'products' && (
-          <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-[#E2E8F0] text-xs">
-                <thead className="bg-[#F8FAFC]">
-                  <tr>
-                    <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase tracking-wider">Product ID</th>
-                    <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase tracking-wider">SKU</th>
-                    <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase tracking-wider">Product Name</th>
-                    <th className="px-6 py-3 text-right font-bold text-slate-500 uppercase tracking-wider">Price</th>
-                    <th className="px-6 py-3 text-right font-bold text-slate-500 uppercase tracking-wider">Stock</th>
-                    <th className="px-6 py-3 text-center font-bold text-slate-500 uppercase tracking-wider">Status</th>
+          <TableCard>
+            <thead className="bg-[#F8FAFC]"><tr>
+              <Th>SKU</Th><Th>Product Name</Th><Th right>Price</Th><Th right>Stock</Th><Th center>Status</Th>
+            </tr></thead>
+            <tbody className="divide-y divide-[#E2E8F0]">
+              {products.length === 0 ? <EmptyRow cols={5} label="No products yet." /> : products.map((p) => {
+                const isOut = p.stock === 0
+                const isLow = p.stock > 0 && p.stock <= p.lowStockThreshold
+                return (
+                  <tr key={p.id} className="hover:bg-indigo-50/10">
+                    <td className="px-6 py-4 font-mono text-slate-400 uppercase">{p.sku}</td>
+                    <td className="px-6 py-4 font-semibold text-slate-900">{p.name}</td>
+                    <td className="px-6 py-4 text-right font-bold text-slate-900 tabular-nums">{money(p.price)}</td>
+                    <td className="px-6 py-4 text-right font-medium text-slate-600 tabular-nums">{p.stock}</td>
+                    <td className="px-6 py-4 text-center">
+                      <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-bold ${isOut ? 'bg-rose-50 text-rose-800 border border-rose-200' : isLow ? 'bg-amber-50 text-[#D97706] border border-amber-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}>
+                        {isOut ? 'Out of Stock' : isLow ? 'Low Stock' : 'In Stock'}
+                      </span>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-[#E2E8F0]">
-                  {myProducts.map((prod) => {
-                    const isLow = prod.stock > 0 && prod.stock <= 3;
-                    const isOut = prod.stock === 0;
-
-                    return (
-                      <tr key={prod.id} className="hover:bg-indigo-50/10">
-                        <td className="px-6 py-4 whitespace-nowrap font-mono text-[10px] text-slate-400">{prod.id}</td>
-                        <td className="px-6 py-4 whitespace-nowrap font-mono text-slate-400 uppercase">{prod.sku}</td>
-                        <td className="px-6 py-4 whitespace-nowrap font-semibold text-slate-900">{prod.name}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right font-bold text-slate-900 tabular-nums">${prod.price.toFixed(2)}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right font-medium text-slate-600 tabular-nums">{prod.stock}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-center">
-                          <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            isOut
-                              ? 'bg-rose-50 text-rose-800 border border-rose-200'
-                              : isLow
-                              ? 'bg-amber-50 text-[#D97706] border border-amber-200'
-                              : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                          }`}>
-                            {isOut ? 'Out of Stock' : isLow ? 'Low Stock' : 'In Stock'}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                )
+              })}
+            </tbody>
+          </TableCard>
         )}
 
-        {/* TAB: ORDERS */}
+        {/* ORDERS */}
         {tab === 'orders' && (
           <div className="space-y-4">
-            {/* Filter buttons */}
-            <div className="flex gap-2">
-              {['All', 'Pending', 'Paid', 'Fulfilled', 'Cancelled'].map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setOrderFilter(f as OrderFilter)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
-                    orderFilter === f
-                      ? 'bg-indigo-800 border-indigo-800 text-white shadow-sm'
-                      : 'bg-white border-[#E2E8F0] text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  {f}
-                </button>
+            <div className="flex gap-2 flex-wrap">
+              {(['All', 'Pending', 'Paid', 'Fulfilled', 'Cancelled'] as OrderFilter[]).map((f) => (
+                <button key={f} onClick={() => setOrderFilter(f)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${orderFilter === f ? 'bg-indigo-800 border-indigo-800 text-white' : 'bg-white border-[#E2E8F0] text-slate-600 hover:bg-slate-50'}`}>{f}</button>
               ))}
             </div>
-
-            <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-[#E2E8F0] text-xs">
-                  <thead className="bg-[#F8FAFC]">
-                    <tr>
-                      <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase">Order ID</th>
-                      <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase">Customer</th>
-                      <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase">Items</th>
-                      <th className="px-6 py-3 text-right font-bold text-slate-500 uppercase">Total Amount</th>
-                      <th className="px-6 py-3 text-center font-bold text-slate-500 uppercase">Actions</th>
-                      <th className="px-6 py-3 text-center font-bold text-slate-500 uppercase">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#E2E8F0]">
-                    {myOrders
-                      .filter(o => orderFilter === 'All' || o.status === orderFilter)
-                      .map((order) => (
-                        <tr key={order.id} className="hover:bg-slate-50/50">
-                          <td className="px-6 py-4 whitespace-nowrap font-bold text-slate-900 font-mono">{order.id}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-slate-700">{order.customerName}</td>
-                          <td className="px-6 py-4 text-slate-400 max-w-[200px] truncate">{order.items.join(', ')}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-right font-bold text-slate-900 tabular-nums">${order.total.toFixed(2)}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-center space-x-1.5">
-                            {order.status === 'Paid' && (
-                              <button
-                                onClick={() => updateOrderStatus(order.id, 'Fulfilled')}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold px-2 py-1 rounded transition cursor-pointer"
-                              >
-                                Fulfill
-                              </button>
-                            )}
-                            {order.status !== 'Cancelled' && order.status !== 'Fulfilled' && (
-                              <button
-                                onClick={() => updateOrderStatus(order.id, 'Cancelled')}
-                                className="bg-rose-50 text-rose-700 hover:bg-rose-100 text-[10px] font-bold px-2 py-1 rounded transition cursor-pointer"
-                              >
-                                Cancel
-                              </button>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-center">
-                            <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                              order.status === 'Paid'
-                                ? 'bg-indigo-50 text-indigo-800 border border-indigo-200'
-                                : order.status === 'Fulfilled'
-                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                                : order.status === 'Cancelled'
-                                ? 'bg-rose-50 text-rose-800 border border-rose-200'
-                                : 'bg-slate-100 text-slate-800 border border-slate-200'
-                            }`}>
-                              {order.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <TableCard>
+              <thead className="bg-[#F8FAFC]"><tr>
+                <Th>Order ID</Th><Th>Customer</Th><Th>Items</Th><Th right>Total</Th><Th center>Actions</Th><Th center>Status</Th>
+              </tr></thead>
+              <tbody className="divide-y divide-[#E2E8F0]">
+                {orders.filter((o) => orderFilter === 'All' || o.status === orderFilter).length === 0 ? (
+                  <EmptyRow cols={6} label="No orders." />
+                ) : orders.filter((o) => orderFilter === 'All' || o.status === orderFilter).map((o) => (
+                  <tr key={o.id} className="hover:bg-slate-50/50">
+                    <td className="px-6 py-4 font-mono text-slate-900">#{o.id.slice(0, 8)}</td>
+                    <td className="px-6 py-4 text-slate-700">{o.customerName}</td>
+                    <td className="px-6 py-4 text-slate-400 max-w-[200px] truncate">{o.items.join(', ')}</td>
+                    <td className="px-6 py-4 text-right font-bold text-slate-900 tabular-nums">{money(o.total)}</td>
+                    <td className="px-6 py-4 text-center space-x-1.5 whitespace-nowrap">
+                      {o.status === 'Paid' && (
+                        <button disabled={isPending} onClick={() => submit(() => updateOrderStatusAction(o.id, 'fulfilled'))} className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold px-2 py-1 rounded transition cursor-pointer disabled:opacity-50">Fulfill</button>
+                      )}
+                      {o.status === 'Pending' && (
+                        <button disabled={isPending} onClick={() => submit(() => updateOrderStatusAction(o.id, 'paid'))} className="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold px-2 py-1 rounded transition cursor-pointer disabled:opacity-50">Mark Paid</button>
+                      )}
+                      {o.status !== 'Cancelled' && o.status !== 'Fulfilled' && (
+                        <button disabled={isPending} onClick={() => submit(() => updateOrderStatusAction(o.id, 'cancelled'))} className="bg-rose-50 text-rose-700 hover:bg-rose-100 text-[10px] font-bold px-2 py-1 rounded transition cursor-pointer disabled:opacity-50">Cancel</button>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-center"><StatusBadge status={o.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </TableCard>
           </div>
         )}
 
-        {/* TAB: WAREHOUSES */}
+        {/* WAREHOUSES */}
         {tab === 'warehouses' && (
-          <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-[#E2E8F0] text-xs">
-                <thead className="bg-[#F8FAFC]">
-                  <tr>
-                    <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase">Warehouse Name</th>
-                    <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase">Location</th>
-                    <th className="px-6 py-3 text-right font-bold text-slate-500 uppercase">Total Capacity</th>
-                    <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase">Utilized Capacity</th>
-                    <th className="px-6 py-3 text-center font-bold text-slate-500 uppercase">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#E2E8F0]">
-                  {myWarehouses.map((wh) => (
-                    <tr key={wh.id} className="hover:bg-slate-50/50">
-                      <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-400 font-mono">{wh.id}</td>
-                      <td className="px-6 py-4 whitespace-nowrap font-bold text-slate-900">{wh.name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">{wh.location}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right font-medium text-slate-700 tabular-nums">{wh.capacity.toLocaleString()} units</td>
-                      <td className="px-6 py-4 whitespace-nowrap max-w-[200px]">
-                        <div className="flex items-center gap-3">
-                          <div className="w-full bg-[#E2E8F0] rounded-full h-2 overflow-hidden">
-                            <div 
-                              className={`h-full rounded-full ${
-                                wh.utilized >= 90 ? 'bg-rose-600' : wh.utilized >= 70 ? 'bg-amber-500' : 'bg-indigo-600'
-                              }`} 
-                              style={{ width: `${wh.utilized}%` }}
-                            ></div>
-                          </div>
-                          <span className="font-bold text-slate-800 tabular-nums">{wh.utilized}%</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          wh.status === 'Active'
-                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                            : 'bg-amber-50 text-[#D97706] border border-amber-200'
-                        }`}>
-                          {wh.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <TableCard>
+            <thead className="bg-[#F8FAFC]"><tr>
+              <Th>Warehouse Name</Th><Th>Location</Th><Th right>Units on Hand</Th>
+            </tr></thead>
+            <tbody className="divide-y divide-[#E2E8F0]">
+              {warehouses.length === 0 ? <EmptyRow cols={3} label="No warehouses yet." /> : warehouses.map((w) => (
+                <tr key={w.id} className="hover:bg-slate-50/50">
+                  <td className="px-6 py-4 font-bold text-slate-900">{w.name}</td>
+                  <td className="px-6 py-4 text-slate-500">{w.location ?? '—'}</td>
+                  <td className="px-6 py-4 text-right font-medium text-slate-700 tabular-nums">{w.unitsOnHand.toLocaleString()} units</td>
+                </tr>
+              ))}
+            </tbody>
+          </TableCard>
         )}
 
-        {/* TAB: PURCHASE ORDERS */}
+        {/* PURCHASE ORDERS */}
         {tab === 'purchase-orders' && (
-          <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-[#E2E8F0] text-xs">
-                <thead className="bg-[#F8FAFC]">
-                  <tr>
-                    <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase">PO #</th>
-                    <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase">Supplier</th>
-                    <th className="px-6 py-3 text-right font-bold text-slate-500 uppercase">Total Amount</th>
-                    <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase">Date Created</th>
-                    <th className="px-6 py-3 text-center font-bold text-slate-500 uppercase">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#E2E8F0]">
-                  {myPurchaseOrders.map((po) => (
-                    <tr key={po.id} className="hover:bg-slate-50/50">
-                      <td className="px-6 py-4 whitespace-nowrap font-bold text-slate-900 font-mono">{po.id}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-700 font-semibold">{po.supplier}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right font-bold text-slate-900 tabular-nums">${po.amount.toFixed(2)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">{po.date}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          po.status === 'Paid'
-                            ? 'bg-indigo-50 text-indigo-800 border border-indigo-200'
-                            : po.status === 'Fulfilled'
-                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                            : 'bg-slate-100 text-slate-800 border border-slate-200'
-                        }`}>
-                          {po.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <TableCard>
+            <thead className="bg-[#F8FAFC]"><tr>
+              <Th>PO #</Th><Th>Supplier</Th><Th right>Total Amount</Th><Th>Date Created</Th><Th center>Status</Th>
+            </tr></thead>
+            <tbody className="divide-y divide-[#E2E8F0]">
+              {purchaseOrders.length === 0 ? <EmptyRow cols={5} label="No purchase orders yet." /> : purchaseOrders.map((po) => (
+                <tr key={po.id} className="hover:bg-slate-50/50">
+                  <td className="px-6 py-4 font-mono text-slate-900">#{po.id.slice(0, 8)}</td>
+                  <td className="px-6 py-4 text-slate-700 font-semibold">{po.supplier}</td>
+                  <td className="px-6 py-4 text-right font-bold text-slate-900 tabular-nums">{money(po.amount)}</td>
+                  <td className="px-6 py-4 text-slate-500">{new Date(po.date).toLocaleDateString()}</td>
+                  <td className="px-6 py-4 text-center"><StatusBadge status={po.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </TableCard>
         )}
 
-        {/* TAB: SETTINGS */}
+        {/* SETTINGS */}
         {tab === 'settings' && (
           <div className="max-w-xl">
-            {settingsSuccess && (
+            {settingsSaved && (
               <div className="bg-emerald-50 border-l-4 border-[#059669] p-3 rounded-lg mb-6 shadow-sm">
-                <p className="text-xs text-emerald-800 font-medium">Store settings successfully saved!</p>
+                <p className="text-xs text-emerald-800 font-medium">Store settings saved.</p>
               </div>
             )}
-
             <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-sm p-6">
-              <form onSubmit={handleSaveSettings} className="space-y-4 text-xs">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="sm:col-span-2">
-                    <label className="block font-bold text-slate-500 uppercase mb-1">Store Name</label>
-                    <input
-                      type="text"
-                      value={storeName}
-                      onChange={(e) => setStoreName(e.target.value)}
-                      className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                    />
-                  </div>
-
-                  <div className="sm:col-span-2">
-                    <label className="block font-bold text-slate-500 uppercase mb-1">Store Description</label>
-                    <textarea
-                      value={storeDesc}
-                      onChange={(e) => setStoreDesc(e.target.value)}
-                      rows={3}
-                      className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-500 uppercase mb-1">Contact Email</label>
-                    <input
-                      type="email"
-                      value={storeEmail}
-                      onChange={(e) => setStoreEmail(e.target.value)}
-                      className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-500 uppercase mb-1">Support Phone</label>
-                    <input
-                      type="text"
-                      value={storePhone}
-                      onChange={(e) => setStorePhone(e.target.value)}
-                      className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-500 uppercase mb-1">Currency</label>
-                    <select
-                      value={storeCurrency}
-                      onChange={(e) => setStoreCurrency(e.target.value)}
-                      className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                    >
-                      <option>USD</option>
-                      <option>EUR</option>
-                      <option>GBP</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-500 uppercase mb-1">Store Logo URL</label>
-                    <input
-                      type="text"
-                      value={storeLogo}
-                      onChange={(e) => setStoreLogo(e.target.value)}
-                      className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                    />
-                  </div>
+              <form onSubmit={onFormSubmit(updateStoreNameAction, () => { setSettingsSaved(true); setTimeout(() => setSettingsSaved(false), 3000) })} className="space-y-4 text-xs">
+                <div>
+                  <label className={labelClass}>Store Name</label>
+                  <input type="text" name="name" required value={storeName} onChange={(e) => setStoreName(e.target.value)} className={inputClass} />
                 </div>
-
-                <button
-                  type="submit"
-                  className="bg-indigo-800 hover:bg-indigo-900 text-white font-bold py-2.5 px-6 rounded-lg shadow-sm transition text-xs cursor-pointer"
-                >
-                  Save Settings
+                <div>
+                  <label className={labelClass}>Plan</label>
+                  <p className="text-sm font-bold text-slate-800">{store.plan} <span className="text-[10px] font-normal text-slate-400">(managed by platform admin)</span></p>
+                </div>
+                <button type="submit" disabled={isPending} className="bg-indigo-800 hover:bg-indigo-900 text-white font-bold py-2.5 px-6 rounded-lg shadow-sm transition text-xs cursor-pointer disabled:opacity-60">
+                  {isPending ? 'Saving…' : 'Save Settings'}
                 </button>
               </form>
             </div>
 
+            {/* MCP API Keys */}
             <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-sm p-6 mt-6">
-              <h3 className="font-bold text-slate-900 text-sm border-b border-[#E2E8F0] pb-2 uppercase tracking-wide mb-4">
-                MCP API Keys
-              </h3>
+              <h3 className="font-bold text-slate-900 text-sm border-b border-[#E2E8F0] pb-2 uppercase tracking-wide mb-4">MCP API Keys</h3>
               <p className="text-xs text-slate-500 mb-4">
-                Generate an API key to securely connect your store to Claude Code or the MCP Inspector. 
+                Generate an API key to securely connect your store to Claude Desktop or the MCP Inspector.
                 <strong className="text-rose-600"> You will only see the raw key once.</strong>
               </p>
-              
+
               {keyError && (
-                <div className="bg-rose-50 border-l-4 border-rose-500 p-3 rounded-lg mb-4 text-xs text-rose-800 font-medium">
-                  {keyError}
-                </div>
+                <div className="bg-rose-50 border-l-4 border-rose-500 p-3 rounded-lg mb-4 text-xs text-rose-800 font-medium">{keyError}</div>
               )}
 
               {generatedKey ? (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-3">
                   <h4 className="font-bold text-emerald-800 text-xs">New API Key Generated!</h4>
                   <p className="text-[10px] text-emerald-700">Please copy this key now. For security reasons, we will never show it again.</p>
-                  <div className="bg-white border border-emerald-200 p-2 rounded text-xs font-mono break-all text-slate-900 select-all">
-                    {generatedKey}
-                  </div>
-                  <button
-                    onClick={() => setGeneratedKey(null)}
-                    className="mt-2 text-xs font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
-                  >
-                    I have copied my key
-                  </button>
+                  <div className="bg-white border border-emerald-200 p-2 rounded text-xs font-mono break-all text-slate-900 select-all">{generatedKey}</div>
+                  <button onClick={() => setGeneratedKey(null)} className="mt-2 text-xs font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer">I have copied my key</button>
                 </div>
               ) : (
                 <form onSubmit={handleGenerateApiKey} className="space-y-4">
                   <div>
-                    <label className="block font-bold text-slate-500 text-xs uppercase mb-1">Key Name</label>
-                    <input
-                      type="text"
-                      required
-                      value={apiKeyName}
-                      onChange={(e) => setApiKeyName(e.target.value)}
-                      placeholder="My MCP Server Key"
-                      className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 text-xs focus:outline-none focus:border-indigo-600"
-                    />
+                    <label className={labelClass}>Key Name</label>
+                    <input type="text" required value={apiKeyName} onChange={(e) => setApiKeyName(e.target.value)} placeholder="My MCP Server Key" className={inputClass} />
                   </div>
-                  <button
-                    type="submit"
-                    disabled={isGeneratingKey}
-                    className="bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-bold py-2.5 px-6 rounded-lg shadow-sm transition text-xs cursor-pointer"
-                  >
-                    {isGeneratingKey ? 'Generating...' : 'Generate New API Key'}
+                  <button type="submit" disabled={isGeneratingKey} className="bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-bold py-2.5 px-6 rounded-lg shadow-sm transition text-xs cursor-pointer">
+                    {isGeneratingKey ? 'Generating…' : 'Generate New API Key'}
                   </button>
                 </form>
               )}
             </div>
           </div>
         )}
-
       </main>
 
       {/* MODALS */}
-      {/* MODAL: ADD PRODUCT */}
-      {showAddProductModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-md max-w-md w-full p-6 space-y-4 text-xs">
-            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide border-b border-[#E2E8F0] pb-2">Add New Product</h3>
-            <form onSubmit={handleAddProductSubmit} className="space-y-3">
-              <div>
-                <label className="block font-bold text-slate-500 uppercase mb-1">Product Name</label>
-                <input
-                  type="text"
-                  required
-                  value={prodName}
-                  onChange={(e) => setProdName(e.target.value)}
-                  placeholder="Mechanical Keyboard Pro"
-                  className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-500 uppercase mb-1">Price ($)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={prodPrice}
-                    onChange={(e) => setProdPrice(e.target.value)}
-                    placeholder="129.99"
-                    className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-500 uppercase mb-1">Initial Stock</label>
-                  <input
-                    type="number"
-                    required
-                    value={prodStock}
-                    onChange={(e) => setProdStock(e.target.value)}
-                    placeholder="10"
-                    className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-500 uppercase mb-1">SKU</label>
-                  <input
-                    type="text"
-                    required
-                    value={prodSku}
-                    onChange={(e) => setProdSku(e.target.value)}
-                    placeholder="SKU-KB-PRO"
-                    className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-500 uppercase mb-1">Image URL</label>
-                  <input
-                    type="text"
-                    required
-                    value={prodImage}
-                    onChange={(e) => setProdImage(e.target.value)}
-                    className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-500 uppercase mb-1">Description</label>
-                <textarea
-                  required
-                  value={prodDesc}
-                  onChange={(e) => setProdDesc(e.target.value)}
-                  rows={3}
-                  className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                />
-              </div>
-
-              <div className="flex gap-2 justify-end pt-3 border-t border-[#E2E8F0]">
-                <button
-                  type="button"
-                  onClick={() => setShowAddProductModal(false)}
-                  className="bg-white border border-[#E2E8F0] hover:bg-slate-50 text-slate-700 font-bold py-2 px-4 rounded-lg transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="bg-indigo-800 hover:bg-indigo-900 text-white font-bold py-2 px-4 rounded-lg shadow-sm transition cursor-pointer"
-                >
-                  Add Product
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {modal === 'product' && (
+        <Modal title="Add New Product" onClose={() => setModal(null)}>
+          <form onSubmit={onFormSubmit(addProductAction, () => setModal(null))} className="space-y-3">
+            <Field label="Product Name"><input name="name" required placeholder="Mechanical Keyboard Pro" className={inputClass} /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Price ($)"><input name="price" type="number" step="0.01" required placeholder="129.99" className={inputClass} /></Field>
+              <Field label="Initial Stock"><input name="initialStock" type="number" min="0" required placeholder="10" className={inputClass} /></Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="SKU"><input name="sku" required placeholder="SKU-KB-PRO" className={inputClass} /></Field>
+              <Field label="Image URL"><input name="imageUrl" required placeholder="https://…" className={inputClass} /></Field>
+            </div>
+            <Field label="Description"><textarea name="description" required rows={3} className={inputClass} /></Field>
+            <ModalActions pending={isPending} submitLabel="Add Product" onCancel={() => setModal(null)} />
+          </form>
+        </Modal>
       )}
 
-      {/* MODAL: ADD WAREHOUSE */}
-      {showAddWarehouseModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-md max-w-md w-full p-6 space-y-4 text-xs">
-            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide border-b border-[#E2E8F0] pb-2">Add New Warehouse</h3>
-            <form onSubmit={handleAddWarehouseSubmit} className="space-y-3">
-              <div>
-                <label className="block font-bold text-slate-500 uppercase mb-1">Warehouse Name</label>
-                <input
-                  type="text"
-                  required
-                  value={whName}
-                  onChange={(e) => setWhName(e.target.value)}
-                  placeholder="Warehouse D"
-                  className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-500 uppercase mb-1">Location</label>
-                <input
-                  type="text"
-                  required
-                  value={whLocation}
-                  onChange={(e) => setWhLocation(e.target.value)}
-                  placeholder="East depot"
-                  className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-500 uppercase mb-1">Total Capacity (units)</label>
-                <input
-                  type="number"
-                  required
-                  value={whCapacity}
-                  onChange={(e) => setWhCapacity(e.target.value)}
-                  placeholder="10000"
-                  className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                />
-              </div>
-
-              <div className="flex gap-2 justify-end pt-3 border-t border-[#E2E8F0]">
-                <button
-                  type="button"
-                  onClick={() => setShowAddWarehouseModal(false)}
-                  className="bg-white border border-[#E2E8F0] hover:bg-slate-50 text-slate-700 font-bold py-2 px-4 rounded-lg transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="bg-indigo-800 hover:bg-indigo-900 text-white font-bold py-2 px-4 rounded-lg shadow-sm transition cursor-pointer"
-                >
-                  Add Warehouse
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {modal === 'warehouse' && (
+        <Modal title="Add New Warehouse" onClose={() => setModal(null)}>
+          <form onSubmit={onFormSubmit(addWarehouseAction, () => setModal(null))} className="space-y-3">
+            <Field label="Warehouse Name"><input name="name" required placeholder="Warehouse D" className={inputClass} /></Field>
+            <Field label="Location"><input name="location" required placeholder="East depot" className={inputClass} /></Field>
+            <ModalActions pending={isPending} submitLabel="Add Warehouse" onCancel={() => setModal(null)} />
+          </form>
+        </Modal>
       )}
 
-      {/* MODAL: NEW PO */}
-      {showNewPoModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-md max-w-md w-full p-6 space-y-4 text-xs">
-            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide border-b border-[#E2E8F0] pb-2">New Purchase Order</h3>
-            <form onSubmit={handleAddPoSubmit} className="space-y-3">
-              <div>
-                <label className="block font-bold text-slate-500 uppercase mb-1">Supplier Name</label>
-                <input
-                  type="text"
-                  required
-                  value={poSupplier}
-                  onChange={(e) => setPoSupplier(e.target.value)}
-                  placeholder="Apex Components"
-                  className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-500 uppercase mb-1">Total Amount ($)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  value={poAmount}
-                  onChange={(e) => setPoAmount(e.target.value)}
-                  placeholder="1500.00"
-                  className="w-full bg-white border border-[#E2E8F0] rounded-lg py-2 px-3 focus:outline-none focus:border-indigo-600"
-                />
-              </div>
-
-              <div className="flex gap-2 justify-end pt-3 border-t border-[#E2E8F0]">
-                <button
-                  type="button"
-                  onClick={() => setShowNewPoModal(false)}
-                  className="bg-white border border-[#E2E8F0] hover:bg-slate-50 text-slate-700 font-bold py-2 px-4 rounded-lg transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="bg-indigo-800 hover:bg-indigo-900 text-white font-bold py-2 px-4 rounded-lg shadow-sm transition cursor-pointer"
-                >
-                  Create PO
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {modal === 'po' && (
+        <Modal title="New Purchase Order" onClose={() => setModal(null)}>
+          <form onSubmit={onFormSubmit(addPurchaseOrderAction, () => setModal(null))} className="space-y-3">
+            <Field label="Supplier Name"><input name="supplier" required placeholder="Apex Components" className={inputClass} /></Field>
+            <p className="text-[10px] text-slate-400">Creates a draft PO. Add line items to set its total.</p>
+            <ModalActions pending={isPending} submitLabel="Create PO" onCancel={() => setModal(null)} />
+          </form>
+        </Modal>
       )}
     </div>
-  );
+  )
+}
+
+/* ---- small presentational helpers ---- */
+
+function HeaderButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return <button onClick={onClick} className="bg-indigo-800 hover:bg-indigo-900 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-sm transition cursor-pointer">{children}</button>
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const cls =
+    status === 'Paid' ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
+      : status === 'Fulfilled' || status === 'Received' ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+      : status === 'Cancelled' ? 'bg-rose-50 text-rose-800 border-rose-200'
+      : 'bg-slate-100 text-slate-800 border-slate-200'
+  return <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${cls}`}>{status}</span>
+}
+
+function TableCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-sm overflow-hidden">
+      <div className="overflow-x-auto"><table className="min-w-full divide-y divide-[#E2E8F0] text-xs">{children}</table></div>
+    </div>
+  )
+}
+
+function Th({ children, right, center }: { children: React.ReactNode; right?: boolean; center?: boolean }) {
+  return <th className={`px-6 py-3 font-bold text-slate-500 uppercase tracking-wider ${right ? 'text-right' : center ? 'text-center' : 'text-left'}`}>{children}</th>
+}
+
+function EmptyRow({ cols, label }: { cols: number; label: string }) {
+  return <tr><td colSpan={cols} className="px-6 py-8 text-center text-slate-400">{label}</td></tr>
+}
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-md max-w-md w-full p-6 space-y-4 text-xs" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide border-b border-[#E2E8F0] pb-2">{title}</h3>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div><label className={labelClass}>{label}</label>{children}</div>
+}
+
+function ModalActions({ pending, submitLabel, onCancel }: { pending: boolean; submitLabel: string; onCancel: () => void }) {
+  return (
+    <div className="flex gap-2 justify-end pt-3 border-t border-[#E2E8F0]">
+      <button type="button" onClick={onCancel} className="bg-white border border-[#E2E8F0] hover:bg-slate-50 text-slate-700 font-bold py-2 px-4 rounded-lg transition cursor-pointer">Cancel</button>
+      <button type="submit" disabled={pending} className="bg-indigo-800 hover:bg-indigo-900 text-white font-bold py-2 px-4 rounded-lg shadow-sm transition cursor-pointer disabled:opacity-60">{pending ? 'Saving…' : submitLabel}</button>
+    </div>
+  )
 }

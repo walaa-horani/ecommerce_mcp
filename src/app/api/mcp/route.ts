@@ -27,8 +27,8 @@ export async function POST(req: Request) {
     }
 
     // Call checkPlanLimit(orgId, 'mcp_access') and reject if not on pro (SKILLS.md rule 10)
-    const hasAccess = await checkPlanLimit(supabase, orgId, 'mcp_access')
-    if (!hasAccess) {
+    const planCheck = await checkPlanLimit(supabase, orgId, 'mcp_access')
+    if (!planCheck.allowed) {
       return new Response('Forbidden: MCP access requires a Pro plan', { status: 403 })
     }
 

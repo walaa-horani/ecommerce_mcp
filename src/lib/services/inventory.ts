@@ -219,7 +219,14 @@ export async function bulkUpdateProducts(
   if (error) throw error;
   
   if (actor) {
-    await logAction(supabase, orgId, actor, 'bulk_update_products', 'products', targetIds, { filters, updates });
+    await logAction(supabase, {
+      orgId,
+      actor,
+      action: 'bulk_update_products',
+      targetTable: 'products',
+      targetIds,
+      details: { filters, updates },
+    });
   }
   
   return {

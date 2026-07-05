@@ -1,24 +1,32 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+export interface LogActionParams {
+  orgId: string
+  actor: string
+  action: string
+  targetTable: string
+  targetIds: string[]
+  details?: Record<string, unknown>
+}
+
+/**
+ * Logs an action to the audit_log table.
+ * Used primarily by MCP tools to record writes, per SKILLS.md rule 12.
+ */
 export async function logAction(
   supabase: SupabaseClient,
-  orgId: string,
-  actor: string, // uuid of the user/system
-  action: string,
-  target_table: string,
-  target_ids: string[],
-  details: Record<string, unknown>
-) {
+  params: LogActionParams
+): Promise<void> {
   const { error } = await supabase.from('audit_log').insert({
-    org_id: orgId,
-    actor,
-    action,
-    target_table,
-    target_ids,
-    details
+    org_id: params.orgId,
+    actor: params.actor,
+    action: params.action,
+    target_table: params.targetTable,
+    target_ids: params.targetIds,
+    details: params.details ?? null,
   })
-  
+
   if (error) {
-    console.error('Failed to log action:', error)
+    throw error
   }
 }
