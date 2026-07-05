@@ -120,3 +120,24 @@ Default to the most conservative option: add the extra ownership check, add the 
 `confirm` step, add the audit log call, keep any public policy as narrow as possible. If a
 feature seems to need a new anonymous read or write path, stop and flag it explicitly
 instead of adding it — this project's rule is "no anonymous writes, ever."
+
+
+
+## 18. Git Workflow: Feature Branching & Dev Deployment
+- **FIRST ACTION, BEFORE ANY OTHER WORK:** the moment a new feature or fix is requested, immediately create and switch to a feature branch off `dev` (`git checkout -b feature/<name> dev`) — do this *before* reading task files, editing code, running `tsc`/lint, or building. No exploration, edits, or verification may happen while still on `dev` or `master`. If you notice you are still on `dev`/`master` after starting, stop and branch before continuing.
+- Never write or commit code directly to the `master` or `dev` branches.
+- Before starting any new feature or fix, the AI must create a new feature branch from `dev` (e.g., `feature/cart-validation`).
+- Once the feature is fully implemented, verified via `tsc --noEmit`, and compliant with all project standards, commit the changes on the feature branch.
+- **Always push commits to GitHub — never leave a finished feature only committed locally.** After committing, push the feature branch to the `origin` remote so the work is on GitHub:
+  1. `git checkout -b feature/<name> dev` — branch off `dev`.
+  2. Implement, then `tsc --noEmit` and lint until clean.
+  3. `git add` only the files that belong to this feature (never secrets; `.env*` stays git-ignored).
+  4. `git commit` with a descriptive message.
+  5. `git push -u origin feature/<name>` — push the feature branch to GitHub. If `origin/dev` does not exist yet, push it once as the PR base: `git push -u origin dev`.
+  6. `gh pr create --base dev --head feature/<name>` — open the Pull Request into `dev`.
+- The task is not "done" until the branch is pushed to GitHub and the PR is open. A local-only commit is incomplete.
+- Create a Pull Request (PR) into the `dev` branch for review. Direct pushes to `dev` or `master` are strictly prohibited to maintain environment stability — all changes reach `dev`/`master` only through a reviewed, merged PR.
+
+
+## 19.test after every feature
+- before moving on to the next feature or task, tell me how to test manually every feature after implementation and I will test it and confirm it with you
