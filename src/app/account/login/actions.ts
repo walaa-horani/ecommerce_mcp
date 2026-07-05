@@ -16,6 +16,12 @@ const schema = z.object({
 
 export type CustomerAuthState = { error?: string; message?: string }
 
+// Only allow internal same-origin paths — never an open redirect.
+function safeRedirect(value: FormDataEntryValue | null): string {
+  const path = typeof value === 'string' ? value : ''
+  return path.startsWith('/') && !path.startsWith('//') ? path : '/'
+}
+
 export async function signInCustomerAction(
   _prevState: CustomerAuthState | undefined,
   formData: FormData
@@ -34,7 +40,7 @@ export async function signInCustomerAction(
 
   await ensureCustomerRow(supabase, userId, data.user.email ?? parsed.data.email)
 
-  redirect('/')
+  redirect(safeRedirect(formData.get('redirect')))
 }
 
 export async function signUpCustomerAction(
@@ -61,5 +67,5 @@ export async function signUpCustomerAction(
 
   await ensureCustomerRow(supabase, userId, data.user.email ?? parsed.data.email)
 
-  redirect('/')
+  redirect(safeRedirect(formData.get('redirect')))
 }

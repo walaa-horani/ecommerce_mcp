@@ -17,6 +17,9 @@ function CustomerAccountForm() {
   const [mode, setMode] = useState<'signin' | 'signup'>(
     searchParams.get('mode') === 'signup' ? 'signup' : 'signin'
   )
+  // Only keep internal paths, so login can't be used as an open redirect.
+  const redirectParam = searchParams.get('redirect') ?? ''
+  const redirectTo = redirectParam.startsWith('/') && !redirectParam.startsWith('//') ? redirectParam : '/'
   const [signInState, signInFormAction, signInPending] = useActionState(signInCustomerAction, undefined)
   const [signUpState, signUpFormAction, signUpPending] = useActionState(signUpCustomerAction, undefined)
 
@@ -35,6 +38,7 @@ function CustomerAccountForm() {
         </p>
 
         <form action={action} className="flex flex-col gap-4">
+          <input type="hidden" name="redirect" value={redirectTo} />
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-text-primary mb-1">
               Email
