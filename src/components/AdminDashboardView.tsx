@@ -124,7 +124,7 @@ export default function AdminDashboardView() {
                       <td className="px-6 py-4 whitespace-nowrap text-center">
                         <select
                           value={vendor.plan}
-                          onChange={(e) => updateVendorPlan(vendor.id, e.target.value as any)}
+                          onChange={(e) => updateVendorPlan(vendor.id, e.target.value as 'Free' | 'Pro')}
                           className="bg-white border border-[#E2E8F0] rounded-md py-1 px-2 focus:outline-none"
                         >
                           <option value="Free">Free</option>
