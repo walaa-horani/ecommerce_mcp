@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getViewer } from '@/lib/services/roles'
+import { getAdminVendors, getPlatformSettings } from '@/lib/services/admin'
 import DashboardShell from '@/components/DashboardShell'
 import AdminDashboardView from '@/components/AdminDashboardView'
 
@@ -15,9 +16,14 @@ export default async function AdminPage() {
   if (!viewer.userId) redirect('/account/login?redirect=/admin')
   if (!viewer.isAdmin) redirect('/')
 
+  const [vendors, settings] = await Promise.all([
+    getAdminVendors(supabase),
+    getPlatformSettings(supabase),
+  ])
+
   return (
     <DashboardShell title="Platform Admin" email={viewer.email}>
-      <AdminDashboardView />
+      <AdminDashboardView vendors={vendors} settings={settings} />
     </DashboardShell>
   )
 }
