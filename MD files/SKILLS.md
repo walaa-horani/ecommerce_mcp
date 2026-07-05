@@ -124,6 +124,7 @@ instead of adding it — this project's rule is "no anonymous writes, ever."
 
 
 ## 18. Git Workflow: Feature Branching & Dev Deployment
+- **FIRST ACTION, BEFORE ANY OTHER WORK:** the moment a new feature or fix is requested, immediately create and switch to a feature branch off `dev` (`git checkout -b feature/<name> dev`) — do this *before* reading task files, editing code, running `tsc`/lint, or building. No exploration, edits, or verification may happen while still on `dev` or `master`. If you notice you are still on `dev`/`master` after starting, stop and branch before continuing.
 - Never write or commit code directly to the `master` or `dev` branches.
 - Before starting any new feature or fix, the AI must create a new feature branch from `dev` (e.g., `feature/cart-validation`).
 - Once the feature is fully implemented, verified via `tsc --noEmit`, and compliant with all project standards, commit the changes on the feature branch.
