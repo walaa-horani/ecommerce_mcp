@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { AppStateProvider } from "@/context/AppStateContext";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -24,7 +23,7 @@ export default function RootLayout({
       className={`${inter.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-[#F8FAFC]">
-        <AppStateProvider>{children}</AppStateProvider>
+        {children}
       </body>
     </html>
   );

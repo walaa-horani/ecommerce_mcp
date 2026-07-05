@@ -1,30 +1,71 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useAppState } from '@/context/AppStateContext';
+import React, { useState, useEffect } from 'react';
+import { createClient } from '@/lib/supabase/client';
 
 export default function AdminDashboardView() {
-  const { state, toggleVendorStatus, updateVendorPlan, updatePlatformSettings } = useAppState();
+  const supabase = createClient();
+  const [vendors, setVendors] = useState<any[]>([]);
+  const [platformSettings, setPlatformSettings] = useState<any>(null);
 
   const [tab, setTab] = useState<'vendors' | 'settings'>('vendors');
   
   // Settings Form State
-  const [fee, setFee] = useState(state.globalFee.toString());
-  const [freeCost, setFreeCost] = useState(state.freePlanCost.toString());
-  const [proCost, setProCost] = useState(state.proPlanCost.toString());
-  const [status, setStatus] = useState(state.platformStatus);
-  const [banner, setBanner] = useState(state.globalBanner);
+  const [fee, setFee] = useState('0');
+  const [freeCost, setFreeCost] = useState('0');
+  const [proCost, setProCost] = useState('0');
+  const [status, setStatus] = useState(true);
+  const [banner, setBanner] = useState('');
   const [success, setSuccess] = useState(false);
 
-  const handleSaveSettings = (e: React.FormEvent) => {
+  useEffect(() => {
+    async function loadData() {
+      // Vendors
+      const { data: orgs } = await supabase.from('organizations').select('*');
+      if (orgs) {
+        setVendors(orgs.map(o => ({
+          id: o.id,
+          name: o.name,
+          plan: 'Free', // Mocked plan for now
+          isActive: true, // Mocked status
+          productCount: 0,
+          orderCount: 0
+        })));
+      }
+
+      // Settings
+      const { data: sets } = await supabase.from('platform_settings').select('*').limit(1).single();
+      if (sets) {
+        setPlatformSettings(sets);
+        setFee((sets.global_fee || 0).toString());
+        setFreeCost((sets.free_plan_cost || 0).toString());
+        setProCost((sets.pro_plan_cost || 0).toString());
+        setStatus(sets.platform_status === 'online');
+        setBanner(sets.global_banner || '');
+      }
+    }
+    loadData();
+  }, []);
+
+  const toggleVendorStatus = (id: string) => {
+    // Requires updating org status
+  };
+
+  const updateVendorPlan = (id: string, plan: string) => {
+    // Requires updating org plan
+  };
+
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    updatePlatformSettings({
-      globalFee: Number(fee),
-      freePlanCost: Number(freeCost),
-      proPlanCost: Number(proCost),
-      platformStatus: status,
-      globalBanner: banner,
-    });
+    if (platformSettings) {
+      await supabase.from('platform_settings').update({
+        global_fee: Number(fee),
+        free_plan_cost: Number(freeCost),
+        pro_plan_cost: Number(proCost),
+        platform_status: status ? 'online' : 'maintenance',
+        global_banner: banner
+      }).eq('id', platformSettings.id);
+    }
     setSuccess(true);
     setTimeout(() => setSuccess(false), 3000);
   };
@@ -109,7 +150,7 @@ export default function AdminDashboardView() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#E2E8F0]">
-                  {state.vendors.map((vendor) => (
+                  {vendors.map((vendor) => (
                     <tr key={vendor.id} className="hover:bg-slate-50/50">
                       <td className="px-6 py-4 whitespace-nowrap font-bold text-slate-900">{vendor.name}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-center">
