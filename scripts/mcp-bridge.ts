@@ -34,7 +34,7 @@ async function main() {
   const stdioTransport = new StdioServerTransport()
   
   // Forward messages from Claude (stdio) to Next.js (HTTP)
-  stdioTransport.onmessage = async (message) => {
+  stdioTransport.onmessage = async (message: any) => {
     // Send request to our remote server
     if ('method' in message && message.method === 'tools/call') {
        const result = await client.callTool(message.params as any)
