@@ -1,13 +1,164 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useAppState } from '@/context/AppStateContext';
+import React, { useState, useEffect } from 'react';
+import { createClient } from '@/lib/supabase/client';
 
 type VendorTab = 'overview' | 'products' | 'orders' | 'warehouses' | 'purchase-orders' | 'settings';
 type OrderFilter = 'All' | 'Pending' | 'Paid' | 'Fulfilled' | 'Cancelled';
 
+interface DashboardProduct {
+  id: string;
+  name: string;
+  sku: string;
+  price: number;
+  stock: number;
+  status?: string;
+  image?: string;
+  [key: string]: unknown;
+}
+
+interface DashboardOrder {
+  id: string;
+  customerName: string;
+  date: string;
+  total: number;
+  items: string[];
+  status: string;
+  [key: string]: unknown;
+}
+
+interface DashboardWarehouse {
+  id: string;
+  name: string;
+  location: string;
+  capacity: number;
+  utilized: number;
+  status: string;
+  [key: string]: unknown;
+}
+
+interface DashboardPurchaseOrder {
+  id: string;
+  supplier: string;
+  amount: number;
+  date: string;
+  status: string;
+  [key: string]: unknown;
+}
+
+interface NewProductInput {
+  name: string;
+  sku: string;
+  price: number;
+  stock: number;
+  isPublished: boolean;
+  image: string;
+  description?: string;
+  vendor?: string;
+  orgId?: string;
+}
+
+interface NewWarehouseInput {
+  name: string;
+  location: string;
+  capacity?: number;
+  utilized?: number;
+  status?: string;
+}
+
+interface NewPurchaseOrderInput {
+  supplier: string;
+  amount: number;
+  date: string;
+  status: string;
+}
+
 export default function VendorDashboardView() {
-  const { state, addProduct, addWarehouse, addPurchaseOrder, updateOrderStatus } = useAppState();
+  const supabase = createClient();
+  const [myProducts, setMyProducts] = useState<DashboardProduct[]>([]);
+  const [myOrders, setMyOrders] = useState<DashboardOrder[]>([]);
+  const [myWarehouses, setMyWarehouses] = useState<DashboardWarehouse[]>([]);
+  const [myPurchaseOrders, setMyPurchaseOrders] = useState<DashboardPurchaseOrder[]>([]);
+  const [vendorOrgId, setVendorOrgId] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadData() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: member } = await supabase.from('memberships').select('org_id').eq('user_id', user.id).single();
+      if (!member) return;
+      
+      const oId = member.org_id;
+      setVendorOrgId(oId);
+
+      // Load Products
+      const { data: prods } = await supabase.from('products').select('*, product_stock(quantity)').eq('org_id', oId);
+      if (prods) {
+        setMyProducts(prods.map(p => ({
+          ...p,
+          stock: p.product_stock?.[0]?.quantity || 0,
+          status: (p.product_stock?.[0]?.quantity || 0) > 10 ? 'In Stock' : 'Low Stock',
+          image: p.image_url || 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=500&auto=format&fit=crop&q=60'
+        })));
+      }
+
+      // Load Orders
+      const { data: ords } = await supabase.from('orders').select('*').eq('org_id', oId);
+      if (ords) {
+        setMyOrders(ords.map(o => ({
+          ...o,
+          customerName: 'Customer', // Would require relation join
+          date: new Date(o.created_at).toISOString().split('T')[0],
+          total: Number(o.total_amount) || 0,
+          items: [], // Would require fetching order_items relation
+        })));
+      }
+
+      // Load Warehouses
+      const { data: whs } = await supabase.from('warehouses').select('*').eq('org_id', oId);
+      if (whs) {
+        setMyWarehouses(whs.map(w => ({
+          ...w,
+          capacity: 1000,
+          utilized: 0,
+          status: 'Operational'
+        })));
+      }
+
+      // Load POs
+      const { data: pos } = await supabase.from('purchase_orders').select('*').eq('org_id', oId);
+      if (pos) setMyPurchaseOrders(pos);
+    }
+    loadData();
+  }, []);
+
+  const addProduct = async (p: NewProductInput) => {
+    if(!vendorOrgId) return;
+    const { data } = await supabase.from('products').insert({
+      org_id: vendorOrgId, name: p.name, sku: p.sku, price: p.price, is_published: p.isPublished, image_url: p.image
+    }).select().single();
+    if (data) {
+      await supabase.from('product_stock').insert({ org_id: vendorOrgId, product_id: data.id, quantity: p.stock });
+      setMyProducts([...myProducts, { ...p, id: data.id, stock: p.stock, status: p.stock > 10 ? 'In Stock' : 'Low Stock' }]);
+    }
+  };
+
+  const addWarehouse = async (w: NewWarehouseInput) => {
+    if(!vendorOrgId) return;
+    const { data } = await supabase.from('warehouses').insert({
+      org_id: vendorOrgId, name: w.name, location: w.location
+    }).select().single();
+    if(data) setMyWarehouses([...myWarehouses, data]);
+  };
+
+  const addPurchaseOrder = async (_po: NewPurchaseOrderInput) => {
+    // Requires supplier_id to work correctly
+  };
+
+  const updateOrderStatus = async (id: string, s: string) => {
+    await supabase.from('orders').update({ status: s }).eq('id', id);
+    setMyOrders(myOrders.map(o => o.id === id ? { ...o, status: s } : o));
+  };
 
   const [tab, setTab] = useState<VendorTab>('overview');
   
@@ -56,8 +207,8 @@ export default function VendorDashboardView() {
       const key = await generateVendorApiKey(apiKeyName);
       setGeneratedKey(key);
       setApiKeyName('My MCP Server Key');
-    } catch (err: any) {
-      setKeyError(err.message || 'Failed to generate API Key');
+    } catch (err) {
+      setKeyError(err instanceof Error ? err.message : 'Failed to generate API Key');
     } finally {
       setIsGeneratingKey(false);
     }
@@ -67,8 +218,6 @@ export default function VendorDashboardView() {
   const [orderFilter, setOrderFilter] = useState<OrderFilter>('All');
 
   // Computed metrics
-  const myProducts = state.products.filter(p => p.orgId === 'vendor-1'); // Default to TechNova Electronics
-  const myOrders = state.orders.filter(o => o.orgId === 'vendor-1');
   const lowStockCount = myProducts.filter(p => p.stock > 0 && p.stock <= 3).length;
   const totalSales = myOrders.reduce((sum, o) => sum + (o.status !== 'Cancelled' ? o.total : 0), 0);
 
@@ -333,6 +482,7 @@ export default function VendorDashboardView() {
               <table className="min-w-full divide-y divide-[#E2E8F0] text-xs">
                 <thead className="bg-[#F8FAFC]">
                   <tr>
+                    <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase tracking-wider">Product ID</th>
                     <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase tracking-wider">SKU</th>
                     <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase tracking-wider">Product Name</th>
                     <th className="px-6 py-3 text-right font-bold text-slate-500 uppercase tracking-wider">Price</th>
@@ -347,6 +497,7 @@ export default function VendorDashboardView() {
 
                     return (
                       <tr key={prod.id} className="hover:bg-indigo-50/10">
+                        <td className="px-6 py-4 whitespace-nowrap font-mono text-[10px] text-slate-400">{prod.id}</td>
                         <td className="px-6 py-4 whitespace-nowrap font-mono text-slate-400 uppercase">{prod.sku}</td>
                         <td className="px-6 py-4 whitespace-nowrap font-semibold text-slate-900">{prod.name}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-right font-bold text-slate-900 tabular-nums">${prod.price.toFixed(2)}</td>
@@ -468,8 +619,9 @@ export default function VendorDashboardView() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#E2E8F0]">
-                  {state.warehouses.map((wh) => (
+                  {myWarehouses.map((wh) => (
                     <tr key={wh.id} className="hover:bg-slate-50/50">
+                      <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-400 font-mono">{wh.id}</td>
                       <td className="px-6 py-4 whitespace-nowrap font-bold text-slate-900">{wh.name}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-slate-500">{wh.location}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-right font-medium text-slate-700 tabular-nums">{wh.capacity.toLocaleString()} units</td>
@@ -518,7 +670,7 @@ export default function VendorDashboardView() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#E2E8F0]">
-                  {state.purchaseOrders.map((po) => (
+                  {myPurchaseOrders.map((po) => (
                     <tr key={po.id} className="hover:bg-slate-50/50">
                       <td className="px-6 py-4 whitespace-nowrap font-bold text-slate-900 font-mono">{po.id}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-slate-700 font-semibold">{po.supplier}</td>
