@@ -9,6 +9,7 @@ import {
   addWarehouseAction,
   updateOrderStatusAction,
   updateStoreNameAction,
+  generateVendorApiKey,
   type ActionResult,
 } from '@/app/dashboard/actions'
 
@@ -37,6 +38,28 @@ export default function VendorDashboardView({ data }: { data: VendorDashboardDat
   const [error, setError] = useState<string | null>(null)
   const [settingsSaved, setSettingsSaved] = useState(false)
   const [storeName, setStoreName] = useState(data.store.name)
+
+  // MCP API key generation (Pro feature) — raw key is shown exactly once.
+  const [apiKeyName, setApiKeyName] = useState('My MCP Server Key')
+  const [generatedKey, setGeneratedKey] = useState<string | null>(null)
+  const [isGeneratingKey, setIsGeneratingKey] = useState(false)
+  const [keyError, setKeyError] = useState<string | null>(null)
+
+  const handleGenerateApiKey = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setIsGeneratingKey(true)
+    setKeyError(null)
+    setGeneratedKey(null)
+    try {
+      const key = await generateVendorApiKey(apiKeyName)
+      setGeneratedKey(key)
+      setApiKeyName('My MCP Server Key')
+    } catch (err) {
+      setKeyError(err instanceof Error ? err.message : 'Failed to generate API Key')
+    } finally {
+      setIsGeneratingKey(false)
+    }
+  }
 
   const { products, orders, warehouses, purchaseOrders, metrics, store } = data
 
@@ -299,6 +322,38 @@ export default function VendorDashboardView({ data }: { data: VendorDashboardDat
                   {isPending ? 'Saving…' : 'Save Settings'}
                 </button>
               </form>
+            </div>
+
+            {/* MCP API Keys */}
+            <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-sm p-6 mt-6">
+              <h3 className="font-bold text-slate-900 text-sm border-b border-[#E2E8F0] pb-2 uppercase tracking-wide mb-4">MCP API Keys</h3>
+              <p className="text-xs text-slate-500 mb-4">
+                Generate an API key to securely connect your store to Claude Desktop or the MCP Inspector.
+                <strong className="text-rose-600"> You will only see the raw key once.</strong>
+              </p>
+
+              {keyError && (
+                <div className="bg-rose-50 border-l-4 border-rose-500 p-3 rounded-lg mb-4 text-xs text-rose-800 font-medium">{keyError}</div>
+              )}
+
+              {generatedKey ? (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-3">
+                  <h4 className="font-bold text-emerald-800 text-xs">New API Key Generated!</h4>
+                  <p className="text-[10px] text-emerald-700">Please copy this key now. For security reasons, we will never show it again.</p>
+                  <div className="bg-white border border-emerald-200 p-2 rounded text-xs font-mono break-all text-slate-900 select-all">{generatedKey}</div>
+                  <button onClick={() => setGeneratedKey(null)} className="mt-2 text-xs font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer">I have copied my key</button>
+                </div>
+              ) : (
+                <form onSubmit={handleGenerateApiKey} className="space-y-4">
+                  <div>
+                    <label className={labelClass}>Key Name</label>
+                    <input type="text" required value={apiKeyName} onChange={(e) => setApiKeyName(e.target.value)} placeholder="My MCP Server Key" className={inputClass} />
+                  </div>
+                  <button type="submit" disabled={isGeneratingKey} className="bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-bold py-2.5 px-6 rounded-lg shadow-sm transition text-xs cursor-pointer">
+                    {isGeneratingKey ? 'Generating…' : 'Generate New API Key'}
+                  </button>
+                </form>
+              )}
             </div>
           </div>
         )}

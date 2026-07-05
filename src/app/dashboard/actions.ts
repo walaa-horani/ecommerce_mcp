@@ -6,6 +6,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { getViewer } from '@/lib/services/roles'
 import { assertPlanLimit } from '@/lib/services/plans'
+import { generateApiKeySecret } from '@/lib/services/api-keys'
 import {
   createProduct,
   createPurchaseOrder,
@@ -135,4 +136,27 @@ export async function updateStoreNameAction(formData: FormData): Promise<ActionR
   } catch (e) {
     return fail(e, 'Could not save settings.')
   }
+}
+
+/**
+ * Generates a new API Key for the authenticated vendor organization.
+ * Saves the hashed key in the database and returns the raw key ONCE.
+ */
+export async function generateVendorApiKey(name: string): Promise<string> {
+  const supabase = await createClient()
+  const orgId = await requireVendorOrg(supabase)
+
+  const { rawKey, keyHash } = generateApiKeySecret()
+
+  const { error: insertError } = await supabase
+    .from('api_keys')
+    .insert({ org_id: orgId, key_hash: keyHash, name })
+
+  if (insertError) {
+    console.error('Database error inserting API key:', insertError)
+    throw new Error('Failed to save the new API key.')
+  }
+
+  // Return the raw key back to the client UI to be displayed exactly once.
+  return rawKey
 }

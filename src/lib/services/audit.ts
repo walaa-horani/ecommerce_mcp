@@ -6,7 +6,7 @@ export interface LogActionParams {
   action: string
   targetTable: string
   targetIds: string[]
-  details?: Record<string, any>
+  details?: Record<string, unknown>
 }
 
 /**
